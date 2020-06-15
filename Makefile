@@ -119,3 +119,13 @@ rebase-nightly:
 	git add .
 	git commit --allow-empty -m "nightly"
 	git push $(GIT_REMOTE) HEAD:nightly
+
+rebase-beta:
+	git config --global user.email "$(GIT_EMAIL)"
+	git config --global user.name "$(GIT_NAME)"
+	git push $(GIT_REMOTE) --delete beta | true
+	git checkout -b beta
+	git reset --hard nightly
+	git add .
+	git commit --allow-empty -m "beta"
+	git push $(GIT_REMOTE) HEAD:beta
