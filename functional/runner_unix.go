@@ -9,8 +9,11 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Netflix/go-expect"
 )
 
 func (scenario *Scenario) runStdinForUnix() (bytes.Buffer, error) {
@@ -123,132 +126,100 @@ func setUpClearSetupUnix() {
 
 func (scenario *Scenario) runStepsForUnix() (error, string) {
 	args := strings.Fields(scenario.Steps[0].Value)
-	cmd, stdin, out, err := execRit(args)
-	if err == nil {
-		for _, step := range scenario.Steps {
-			if step.Action == "sendkey" {
-				err = sendKeys(step, out, stdin)
-				if err != nil {
-					break
-				}
-			} else if step.Action == "select" {
-				err = selectOption(step, out, stdin)
-				if err != nil {
-					break
-				}
-			}
-		}
+	cmd, c, out, err := execRit(args)
+	if err != nil {
+		panic(err)
 	}
 
-	defer stdin.Close()
+	defer c.Close()
 
-	resp := ""
-	scanner := scannerTerminal(out)
-	for scanner.Scan() {
-		m := scanner.Text()
-		fmt.Println(m)
-		resp = fmt.Sprint(resp, m, "\n")
+
+	go func() {
+		c.ExpectEOF()
+	}()
+
+	go func() {
+		for _, step := range scenario.Steps {
+			if step.Action == "sendkey" {
+				sendKeys(step, out, c)
+			}
+			if step.Action == "newtype" {
+				selectNewType(step, out, c)
+			}
+		}
+	}()
+	err = cmd.Start()
+	if err != nil {
+		panic(err)
 	}
 
 	err = cmd.Wait()
 	if err != nil {
-		log.Printf("Error while running: %q", err)
+		panic(err)
 	}
 
-	fmt.Println(resp)
-	fmt.Println("--------")
-	return err, resp
+	fmt.Println(out.String())
+	return err, out.String()
 }
 
-func commandInit(cmdIn *exec.Cmd) (stdin io.WriteCloser, out io.Reader, err error) {
-	stdin, err = cmdIn.StdinPipe()
-	if err != nil {
-		return nil, nil, err
-	}
 
-	stdout, _ := cmdIn.StdoutPipe()
+func execRit(args []string) (*exec.Cmd, *expect.Console, *bytes.Buffer, error) {
 
-	err = cmdIn.Start()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return stdin, stdout, nil
-}
-
-func execRit(args []string) (*exec.Cmd, io.WriteCloser, io.Reader, error) {
 	cmd := exec.Command(rit, args...)
-	stdin, out, err := commandInit(cmd)
+	out := new(bytes.Buffer)
+	c, err := expect.NewConsole(expect.WithStdout(out))
 	if err != nil {
-		log.Panic(err)
+		fmt.Println(err)
 	}
-	return cmd, stdin, out, err
+
+
+	cmd.Stdin = c.Tty()
+	cmd.Stdout = c.Tty()
+
+	return cmd, c, out, err
 }
 
-func selectOption(step Step, out io.Reader, stdin io.WriteCloser) error {
-	scanner := scannerTerminal(out)
-	startKey := false
-	optionNumber := 0
-	for scanner.Scan() {
-		m := scanner.Text()
-		fmt.Println(m)
-		if strings.Contains(m, step.Key) {
-			startKey = true
-		}
-		if startKey {
-			if strings.Contains(m, step.Value) {
-				err := inputCommand(stdin, "\n")
-				if err != nil {
-					return err
-				}
-				break
-			} else if optionNumber >= 1 {
-				err := inputCommand(stdin, "j")
-				if err != nil {
-					return err
-				}
-			}
-
-			optionNumber++
-		}
-	}
-	return nil
-}
-
-func sendKeys(step Step, out io.Reader, stdin io.WriteCloser) error {
-	valueFinal := step.Value + "\n"
-	scanner := scannerTerminal(out)
-	startKey := false
-	//Need to work on this possibility
-	// optionNumber := 0
-	for scanner.Scan() {
-		m := scanner.Text()
-		fmt.Println(m)
-		if strings.Contains(m, step.Key) {
-			startKey = true
-		}
-		if startKey {
-			// if strings.Contains(m, "Type new value.") {
-			// 	err = inputCommand(err, stdin, "\n")
-			err := inputCommand(stdin, valueFinal)
+func sendKeys(step Step, out *bytes.Buffer, c *expect.Console) {
+	for {
+		matched, _ := regexp.MatchString(step.Key, out.String())
+		if matched {
+			_, err := c.SendLine(step.Value + "\n")
 			if err != nil {
-				return err
+				panic(err)
 			}
 			break
-			// } else if optionNumber >= 1 {
-			// 	err = inputCommand(err, stdin, "j")
-			// }
-			// optionNumber++
 		}
+		time.Sleep(1 * time.Second)
 	}
-	return nil
 }
 
-func inputCommand(stdin io.WriteCloser, command string) error {
-	time.Sleep(1000 * time.Millisecond)
-	_, err := io.Copy(stdin, bytes.NewBuffer([]byte(command)))
-	if err != nil {
-		log.Printf("Error when giving inputs: %q", err)
+func selectNewType(step Step, out *bytes.Buffer, c *expect.Console) {
+	control := 0
+	done := false
+	for !done {
+		matched, _ := regexp.MatchString(step.Key, out.String())
+		if matched {
+			resp := strings.Split(out.String(), "\r")
+			for i, s := range resp {
+				if (strings.Contains(s, "▸")) && i >= control {
+					control = len(resp)
+					selection, _ := regexp.MatchString("▸(.*)?"+step.Value+"(.*)+", s)
+					if selection {
+						_, err := c.SendLine("\n")
+						if err != nil {
+							panic(err)
+						}
+						done = true
+						break
+					} else {
+						_, err := c.SendLine("j")
+						if err != nil {
+							panic(err)
+						}
+					}
+				}
+			}
+		}
+		time.Sleep(1 * time.Second)
 	}
-	return err
 }
