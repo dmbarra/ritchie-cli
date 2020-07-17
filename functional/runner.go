@@ -1,10 +1,8 @@
 package functional
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -103,11 +101,5 @@ func LoadScenarios(file string) []Scenario {
 		log.Fatal("Error unmarshal json:", err)
 	}
 	return res
-}
-
-func scannerTerminal(out io.Reader) *bufio.Scanner {
-	scanner := bufio.NewScanner(out)
-	scanner.Split(bufio.ScanLines)
-	return scanner
 }
 

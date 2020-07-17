@@ -194,16 +194,15 @@ func sendKeys(step Step, out *bytes.Buffer, c *expect.Console) {
 }
 
 func selectNewType(step Step, out *bytes.Buffer, c *expect.Console) {
-	control := 0
 	done := false
 	for !done {
 		matched, _ := regexp.MatchString(step.Key, out.String())
 		if matched {
-			resp := strings.Split(out.String(), "\r")
-			for i, s := range resp {
-				if (strings.Contains(s, "▸")) && i >= control {
-					control = len(resp)
-					selection, _ := regexp.MatchString("▸(.*)?"+step.Value+"(.*)+", s)
+			resp, sizeResp := extractRespAndSize(out)
+			for {
+				fmt.Println(resp[sizeResp])
+				if strings.Contains(resp[sizeResp], "▸") {
+					selection, _ := regexp.MatchString("▸(.*)?"+step.Value+"(.*)+", resp[sizeResp])
 					if selection {
 						_, err := c.SendLine("\n")
 						if err != nil {
@@ -212,14 +211,26 @@ func selectNewType(step Step, out *bytes.Buffer, c *expect.Console) {
 						done = true
 						break
 					} else {
-						_, err := c.SendLine("j")
+						_, err := c.Send("j")
 						if err != nil {
 							panic(err)
 						}
+						break
 					}
 				}
+				if sizeResp == 0 {
+					break
+				}
+				sizeResp = sizeResp - 1
 			}
+
 		}
 		time.Sleep(1 * time.Second)
 	}
+}
+
+func extractRespAndSize(out *bytes.Buffer) ([]string, int) {
+	resp := strings.Split(out.String(), "\r")
+	sizeResp := len(resp) - 1
+	return resp, sizeResp
 }

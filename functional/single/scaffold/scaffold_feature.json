@@ -15,12 +15,12 @@
             {
                 "key":"Pick your coffee:",
                 "value":"macchiato",
-                "action":"select"
+                "action":"newtype"
             },
             {
                 "key":"Delivery?",
                 "value":"false",
-                "action":"select"
+                "action":"newtype"
             }
         ],
         "result":""
